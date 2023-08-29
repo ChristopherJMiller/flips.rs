@@ -1,8 +1,10 @@
 use core::ops::Deref;
 
-use crate::Result;
+use flips_sys::bps::bpserror;
+
 use crate::Error;
 use crate::FlipsMemory;
+use crate::Result;
 
 // ---------------------------------------------------------------------------
 
@@ -23,7 +25,7 @@ impl<B: AsRef<[u8]>> BpsPatch<B> {
 
     /// Apply the patch to a source.
     #[must_use]
-    pub fn apply<S: AsRef<[u8]>>(&self, source: S, allow_not_this: bool) -> Result<BpsOutput> {
+    pub fn apply<S: AsRef<[u8]>>(&self, source: S, allow_wrong_input: bool) -> Result<BpsOutput> {
         let slice_p = self.buffer.as_ref();
         let slice_s = source.as_ref();
         let mut mem_m = flips_sys::mem::default();
@@ -32,12 +34,34 @@ impl<B: AsRef<[u8]>> BpsPatch<B> {
         let result = unsafe {
             let mem_i = flips_sys::mem::new(slice_s.as_ptr() as *mut _, slice_s.len());
             let mem_p = flips_sys::mem::new(slice_p.as_ptr() as *mut _, slice_p.len());
-            flips_sys::bps::bps_apply(mem_p, mem_i, &mut mem_o as *mut _, &mut mem_m as *mut _, allow_not_this)
+            flips_sys::bps::bps_apply(
+                mem_p,
+                mem_i,
+                &mut mem_o as *mut _,
+                &mut mem_m as *mut _,
+                allow_wrong_input,
+            )
         };
+
+        if allow_wrong_input
+            && (result == bpserror::bps_not_this || result == bpserror::bps_to_output)
+        {
+            if mem_m.ptr.is_null() {
+                return Ok(BpsOutput::from(FlipsMemory::new(mem_o)));
+            } else {
+                return Ok(BpsOutput::with_metadata(
+                    FlipsMemory::new(mem_o),
+                    FlipsMemory::new(mem_m),
+                ));
+            }
+        }
 
         match Error::from_bps(result) {
             None if mem_m.ptr.is_null() => Ok(BpsOutput::from(FlipsMemory::new(mem_o))),
-            None => Ok(BpsOutput::with_metadata(FlipsMemory::new(mem_o), FlipsMemory::new(mem_m))),
+            None => Ok(BpsOutput::with_metadata(
+                FlipsMemory::new(mem_o),
+                FlipsMemory::new(mem_m),
+            )),
             Some(error) => Err(error),
         }
     }
@@ -72,7 +96,7 @@ impl From<FlipsMemory> for BpsOutput {
     fn from(mem: FlipsMemory) -> Self {
         Self {
             mem,
-            metadata: None
+            metadata: None,
         }
     }
 }
@@ -123,7 +147,10 @@ impl<S: AsRef<[u8]>, T: AsRef<[u8]>> BpsLinearBuilder<S, T, &'static [u8]> {
     }
 
     /// Set the metadata buffer for the patch, if any.
-    pub fn metadata<M: AsRef<[u8]>, B: Into<Option<M>>>(&mut self, buffer: B) -> BpsLinearBuilder<S, T, M> {
+    pub fn metadata<M: AsRef<[u8]>, B: Into<Option<M>>>(
+        &mut self,
+        buffer: B,
+    ) -> BpsLinearBuilder<S, T, M> {
         BpsLinearBuilder {
             source: self.source.take(),
             target: self.target.take(),
@@ -167,12 +194,7 @@ impl<S: AsRef<[u8]>, T: AsRef<[u8]>, M: AsRef<[u8]>> BpsLinearBuilder<S, T, M> {
             };
             let mem_s = flips_sys::mem::new(slice_s.as_ptr() as *mut _, slice_s.len());
             let mem_t = flips_sys::mem::new(slice_t.as_ptr() as *mut _, slice_t.len());
-            flips_sys::bps::bps_create_linear(
-                mem_s,
-                mem_t,
-                mem_metadata,
-                &mut mem_patch as *mut _
-            )
+            flips_sys::bps::bps_create_linear(mem_s, mem_t, mem_metadata, &mut mem_patch as *mut _)
         };
 
         match Error::from_bps(result) {
@@ -217,7 +239,10 @@ impl<S: AsRef<[u8]>, T: AsRef<[u8]>> BpsDeltaBuilder<S, T, &'static [u8]> {
     }
 
     /// Set the metadata buffer for the patch, if any.
-    pub fn metadata<M: AsRef<[u8]>, B: Into<Option<M>>>(&mut self, buffer: B) -> BpsDeltaBuilder<S, T, M> {
+    pub fn metadata<M: AsRef<[u8]>, B: Into<Option<M>>>(
+        &mut self,
+        buffer: B,
+    ) -> BpsDeltaBuilder<S, T, M> {
         BpsDeltaBuilder {
             source: self.source.take(),
             target: self.target.take(),
