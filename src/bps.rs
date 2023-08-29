@@ -23,7 +23,7 @@ impl<B: AsRef<[u8]>> BpsPatch<B> {
 
     /// Apply the patch to a source.
     #[must_use]
-    pub fn apply<S: AsRef<[u8]>>(&self, source: S) -> Result<BpsOutput> {
+    pub fn apply<S: AsRef<[u8]>>(&self, source: S, allow_not_this: bool) -> Result<BpsOutput> {
         let slice_p = self.buffer.as_ref();
         let slice_s = source.as_ref();
         let mut mem_m = flips_sys::mem::default();
@@ -32,7 +32,7 @@ impl<B: AsRef<[u8]>> BpsPatch<B> {
         let result = unsafe {
             let mem_i = flips_sys::mem::new(slice_s.as_ptr() as *mut _, slice_s.len());
             let mem_p = flips_sys::mem::new(slice_p.as_ptr() as *mut _, slice_p.len());
-            flips_sys::bps::bps_apply(mem_p, mem_i, &mut mem_o as *mut _, &mut mem_m as *mut _, false)
+            flips_sys::bps::bps_apply(mem_p, mem_i, &mut mem_o as *mut _, &mut mem_m as *mut _, allow_not_this)
         };
 
         match Error::from_bps(result) {
